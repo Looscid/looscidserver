@@ -195,6 +195,8 @@ async function linkCard(id, url) {
       run('INSERT OR REPLACE INTO link_cards (url, title, description, site, ok, fetched) VALUES (?, ?, ?, ?, ?, ?)', url, card?.title || null, card?.description || null, card?.site || null, card ? 1 : 0, now());
       c = one('SELECT * FROM link_cards WHERE url = ?', url);
     }
+    const cur = one('SELECT text, deleted FROM dreams WHERE id = ?', id);
+    if (!cur || cur.deleted || firstUrl(cur.text) !== url) return;   // the Dream changed while the page was being read
     if (c.ok) { run('UPDATE dreams SET link = ? WHERE id = ?', JSON.stringify({ url, title: c.title, description: c.description, site: c.site }), id); broadcastUpdate(id); }
   } catch (e) { console.error('linkcard', e.message); }
 }
@@ -470,7 +472,7 @@ export function purge(pk) {
     run('DELETE FROM votes WHERE by = ?', pk); run('DELETE FROM follows WHERE by = ? OR who = ?', pk, pk); run('DELETE FROM blocks WHERE by = ? OR who = ?', pk, pk);
     run('DELETE FROM chats WHERE by = ? OR to_pk = ?', pk, pk); run('DELETE FROM alerts WHERE to_pk = ? OR actor = ?', pk, pk); run('DELETE FROM sessions WHERE pubkey = ?', pk);
     run('DELETE FROM role_invites WHERE to_pk = ? OR by = ?', pk, pk); run('DELETE FROM reports WHERE by = ?', pk); run('DELETE FROM import_flags WHERE by = ?', pk); run('DELETE FROM objects WHERE by = ? OR to_pk = ?', pk, pk); run('DELETE FROM media WHERE by = ?', pk);
-    run('UPDATE invites SET revoked = 1 WHERE by = ? AND used_by IS NULL', pk);
+    run('DELETE FROM invites WHERE by = ? OR used_by = ?', pk, pk); run('DELETE FROM owner_claims WHERE pubkey = ?', pk);
     run('DELETE FROM dreamors_fts WHERE pubkey = ?', pk); run('DELETE FROM dreamors WHERE pubkey = ?', pk);
   })();
   for (const m of media) fs.rmSync(path.join(config.dataDir, 'media', `${m.sha}.${m.ext}`), { force: true });
@@ -502,6 +504,15 @@ export function bindOwner({ pubkey, name, replace }) {
     run('INSERT INTO mod_log (by, action, target, note, at) VALUES (?, ?, ?, ?, ?)', 'owner-code', 'bind_owner', pubkey, cur ? 'replaced ' + cur.pubkey : null, now());
   })();
   return { ok: true, owner: dreamorView(member(pubkey)), next: 'Sign in with this LooscidID. It is the owner now.' };
+}
+// Clear leftovers (logs, link cards, test traces) on a home that has no members. Refuses otherwise.
+export function wipeEmpty() {
+  if (one('SELECT count(*) n FROM dreamors').n) fail(409, 'not_empty', 'This home has members. Nothing was wiped.');
+  const tables = ['objects', 'dreams', 'feed', 'redreams', 'reacts', 'follows', 'blocks', 'votes', 'chats', 'alerts', 'invites', 'sessions', 'reports', 'media', 'link_cards', 'mod_log', 'import_flags', 'owner_claims', 'role_invites', 'dreams_fts', 'dreamors_fts'];
+  const counts = {}; tx(() => { for (const t of tables) counts[t] = run(`DELETE FROM ${t}`).changes; })();
+  const dir = path.join(config.dataDir, 'media'); for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { force: true });
+  db.exec('VACUUM');
+  return { ok: true, cleared: counts };
 }
 export const ownerClaimed = () => !!one(`SELECT 1 FROM dreamors WHERE role = 'owner'`);
 export function joinText(invite, handle) { return `${PROTOCOL.key}-join:${config.host}:${invite}:${handle}`; }

@@ -11,6 +11,7 @@ import { db, dbPath, one, run } from './db.mjs';
 import * as R from './rem.mjs';
 import { cleanImage, parseMultipart } from './media.mjs';
 import { accept } from './live.mjs';
+import { fetchCard } from './linkcard.mjs';
 import { PROTOCOL, isHex } from '../public/js/rem-core.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -56,7 +57,7 @@ async function api(req, res, url) {
   const p = url.pathname.slice(B.length) || '/'; const q = Object.fromEntries(url.searchParams); const M = req.method;
   let m;
   if (M === 'GET' && p === '/') return send(res, 200, wellKnown());
-  if (M === 'POST' && p === '/join') { R.rate('join:' + ipOf(req), 10); return send(res, 200, await R.join(await json(req))); }
+  if (M === 'POST' && p === '/join') { R.rate('join:' + ipOf(req), 30); /* friends at one school can share one address */ return send(res, 200, await R.join(await json(req))); }
   if (M === 'POST' && p === '/auth/challenge') { R.rate('auth:' + ipOf(req), 60); return send(res, 200, R.challenge((await json(req)).pubkey)); }
   if (M === 'POST' && p === '/auth/login') { R.rate('login:' + ipOf(req), 60); return send(res, 200, await R.login(await json(req))); }
   if (M === 'POST' && p === '/auth/logout') { const t = tokenOf(req); if (t) run('DELETE FROM sessions WHERE token_hash = ?', R.sha(t)); return send(res, 200, { ok: true }); }
@@ -113,16 +114,18 @@ async function api(req, res, url) {
     if (M === 'POST' && p === '/mod/action') return send(res, 200, R.modAction(m, await json(req)));
     if (M === 'GET' && p === '/mod/tree') return send(res, 200, R.inviteTree());
     if (M === 'GET' && p === '/mod/log') return send(res, 200, R.modLog());
+    if (M === 'GET' && p === '/mod/linkcheck') { try { return send(res, 200, { ok: true, card: await fetchCard(String(q.url || '')) }); } catch (e) { return send(res, 200, { ok: false, why: e.message }); } }
     if (M === 'GET' && p === '/mod/stats') return send(res, 200, { ...R.stats(), memory_mb: Math.round(process.memoryUsage().rss / 1048576), up_since: started });
   }
   if (M === 'GET' && p === '/admin/backup') return backup(req, res);
-  if (p === '/admin/owner' || p === '/admin/owner-claims' || p === '/admin/remove') {
+  if (p === '/admin/owner' || p === '/admin/owner-claims' || p === '/admin/remove' || p === '/admin/wipe-empty') {
     // Only with the owner code (kept by whoever runs the home; the server holds only its hash).
     R.rate('ownercode:' + ipOf(req), 20);
     const code = String(req.headers['x-rem-owner-code'] || '').trim().toUpperCase();
     if (!code || !config.ownerInviteSha256 || R.sha(code) !== config.ownerInviteSha256) throw new R.RemError(403, 'owner_code', 'This needs the owner code.');
     if (M === 'GET' && p === '/admin/owner-claims') return send(res, 200, R.ownerClaims());
     if (M === 'POST' && p === '/admin/owner') return send(res, 200, R.bindOwner(await json(req)));
+    if (M === 'POST' && p === '/admin/wipe-empty') return send(res, 200, R.wipeEmpty());
     if (M === 'POST' && p === '/admin/remove') { const b = await json(req); if (!isHex(b.pubkey, 32) || !R.member(b.pubkey)) throw new R.RemError(404, 'not_found', 'No such member.'); R.purge(b.pubkey); return send(res, 200, { ok: true, removed: b.pubkey }); }
   }
   throw new R.RemError(404, 'no_route', `There is no ${M} ${B}${p}.`);
