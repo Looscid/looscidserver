@@ -3,6 +3,7 @@ import sys, json
 from playwright.sync_api import sync_playwright
 home, seed, outdir, tag = sys.argv[1], json.loads(sys.argv[2]), sys.argv[3], sys.argv[4]
 log = []
+def step(m): print('..', m, flush=True)
 def ok(c, m): log.append(('PASS ' if c else 'FAIL ') + m); print(log[-1], flush=True)
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -13,14 +14,14 @@ with sync_playwright() as p:
     pg.goto(home + '/#join=' + seed['invite']); pg.wait_for_selector('#j-code')
     pg.screenshot(path=f'{outdir}/looscid-server-phone-welcome-dark{tag}.png', full_page=False)
     ok(pg.locator('h1').count() == 1, 'one h1 on welcome')
-    pg.fill('#j-handle', 'webtest'); pg.fill('#j-name', 'Web Test'); pg.check('#j-age'); pg.click('button:text-is("Join")')
+    import random; pg.fill('#j-handle', 'webtest' + str(random.randint(100, 999))); pg.fill('#j-name', 'Web Test'); pg.check('#j-age'); pg.click('button:text-is("Join")')
     pg.wait_for_function("location.hash === '#settings'", timeout=15000)
-    pg.click('text=Show recovery phrase'); pg.wait_for_selector('#phrase')
+    step('settings'); pg.click('button:has-text("Show recovery phrase")'); pg.wait_for_selector('#phrase')
     phrase = pg.inner_text('#phrase'); ok(len(phrase.split()) == 24, 'new member sees 24-word recovery phrase')
     pg.goto(home + '/#discover'); pg.wait_for_selector('article.dream')
     ok(pg.locator('article.dream h3').count() >= 3, 'Discover lists Dreams as articles with headings')
     # follow nova, post in dreamline
-    pg.goto(home + '/#@nova_test'); pg.wait_for_selector('text=Follow'); pg.click('button:has-text("Follow")'); pg.wait_for_timeout(600)
+    step('follow'); pg.goto(home + '/#@nova_test'); pg.wait_for_selector('button:text-is("Follow")'); pg.click('button:text-is("Follow")'); pg.wait_for_timeout(600)
     pg.goto(home + '/#dreamline'); pg.wait_for_selector('#c1-text, textarea')
     pg.fill('textarea >> nth=0', 'Hello from the web client test 🌙'); pg.click('button:has-text("Post Dream")'); pg.wait_for_timeout(1200)
     ok(pg.locator('article.dream', has_text='Hello from the web client test').count() >= 1, 'post from the web client shows in Dreamline')

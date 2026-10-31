@@ -38,6 +38,7 @@ await C.send('follow', { who: B.pubkey }); await B.send('follow', { who: C.pubke
 ok((await C.get('/dreamors/' + B.pubkey)).dreamor.you.mutual === true, 'B and C are mutuals');
 const t0 = Date.now();
 const d1 = await B.send('dream', { text: `Hello Looscid #remtest ${rnd} https://example.com`, audience: 'public', speak: 'Hello Looscid' });
+const dCard = await C.send('dream', { text: `Link card test https://example.com`, audience: 'public' });
 ok(!!d1.id, 'B posts a Dream');
 let liveItem; for (let i = 0; i < 40 && !(liveItem = got.find((m) => m.op === 'item' && m.item.id === d1.id)); i++) await sleep(100);
 ok(!!liveItem, 'C gets the Dream live over the WebSocket', liveItem ? `${Date.now() - t0} ms, stream ${liveItem.stream}, event ${liveItem.event}` : 'nothing');
@@ -126,10 +127,10 @@ const prof = await C.get(`/dreamors/${B.pubkey}/dreams`); ok(prof.items.some((x)
 // scheduled publishes
 await sleep(Math.max(0, sd.scheduled_for - Date.now()) + 11000);
 ok(!!(await C.get('/objects/' + sd.id)).item, 'scheduled Dream published on time');
-const card = (await C.get('/objects/' + d1.id)).item.link; ok(!card || card.title, 'link card', JSON.stringify(card || null));
+const card = (await C.get('/objects/' + dCard.id)).item.link; ok(!!(card && card.title), 'link card fetched for the Dream', JSON.stringify(card || null));
 // clean up: remove the test accounts (the owner one too), so the home is fresh again
 if (!process.env.KEEP) { for (const pk of [B.pubkey, C.pubkey, A.pubkey]) await A.req('POST', '/admin/remove', { pubkey: pk }, ownerHdr);
-  const after = await new RemClient({ home }).get('/'); ok(after.owner_claimed === false, 'test accounts removed, owner handle free and reserved again'); }
+  const w = await A.req('POST', '/admin/wipe-empty', {}, ownerHdr); const after = await new RemClient({ home }).get('/'); ok(after.owner_claimed === false && w.ok, 'test accounts and their data removed, owner handle reserved again'); }
 console.log(`\n${pass} passed, ${failn} failed`);
 if (process.env.REPORT) fs.writeFileSync(process.env.REPORT, out.join('\n') + `\n${pass} passed, ${failn} failed\n`);
 process.exit(failn ? 1 : 0);
