@@ -29,7 +29,7 @@ const ago = (t) => { const s = Math.round((Date.now() - t) / 1000); if (s < 0) {
 const plural = (n, w, many) => `${n} ${n === 1 ? w : many || w + 's'}`;
 function setView(name, heading) {
   currentView = name; title.textContent = heading; document.title = `${heading} · Looscid`;
-  view.replaceChildren();
+  view.replaceChildren(); window.scrollTo(0, 0);
   for (const a of document.querySelectorAll('#nav a')) a.toggleAttribute('aria-current', a.getAttribute('href') === '#' + name) || a.removeAttribute('aria-current');
   for (const a of document.querySelectorAll('#nav a')) if (a.getAttribute('href') === '#' + name) a.setAttribute('aria-current', 'page');
   title.setAttribute('tabindex', '-1');
