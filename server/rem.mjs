@@ -446,10 +446,15 @@ export async function importDreams(m, objects) {
       const text = str(b.text, L.text, 'text') || ''; const media = mediaList(b.media, m.pubkey);
       if (!text.trim() && !media.length) fail(422, 'empty', 'That Dream is empty.');
       const audience = b.audience === 'followers' ? 'followers' : 'public';
+      // Replies keep their place in the thread: the Dream they answer must already be here (send it first, in the same
+      // request is fine: Dreams are handled in order). Without it, the reply is refused, never turned into a loose Dream.
+      let replyTo = null, quoteOf = null;
+      if (b.reply_to) { const p = getDream(b.reply_to); if (!p || !canSee(p, m.pubkey)) fail(404, 'parent_missing', 'The Dream this reply answers is not on the server, so the reply stays on your device.'); replyTo = p.id; }
+      if (b.quote) { const q = getDream(b.quote); if (q && canSee(q, m.pubkey) && q.audience === 'public') quoteOf = q.id; else fail(404, 'parent_missing', 'The Dream this one quotes is not on the server, so it stays on your device.'); }
       const tags = [...new Set([...text.matchAll(/(?:^|\s)#([\p{L}\p{N}_]{1,40})/gu)].map((x) => x[1].toLowerCase()))].slice(0, 10);
       tx(() => {
-        run(`INSERT INTO dreams (id, by, at, text, cw, speak, lang, audience, media, tags, published, pub_at, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1)`,
-          o.id, m.pubkey, o.at, text, str(b.cw, L.cw, 'content warning'), str(b.speak, L.speak, 'speak text'), str(b.lang, 10, 'language'), audience, media.length ? JSON.stringify(media) : null, tags.length ? JSON.stringify(tags) : null, o.at);
+        run(`INSERT INTO dreams (id, by, at, text, cw, speak, lang, audience, reply_to, quote, media, tags, published, pub_at, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1)`,
+          o.id, m.pubkey, o.at, text, str(b.cw, L.cw, 'content warning'), str(b.speak, L.speak, 'speak text'), str(b.lang, 10, 'language'), audience, replyTo, quoteOf, media.length ? JSON.stringify(media) : null, tags.length ? JSON.stringify(tags) : null, o.at);
         run('INSERT INTO feed (kind, dream, by, at, obj) VALUES (?, ?, ?, ?, ?)', 'imported', o.id, m.pubkey, o.at, o.id);
         run('INSERT INTO dreams_fts (id, text, cw) VALUES (?, ?, ?)', o.id, text, b.cw || '');
         log(o); run('DELETE FROM import_flags WHERE id = ?', o.id);
