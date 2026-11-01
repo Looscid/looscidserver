@@ -1,5 +1,5 @@
 // The Looscid home server: HTTPS JSON API under /rem/v0, the Rem live stream (one WebSocket), uploaded media,
-// the backup download, and a small accessible web client at /.
+// the backup download, the Looscid app at / (webapp/) and the classic web client at /classic/ (public/).
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,9 +15,14 @@ import { fetchCard } from './linkcard.mjs';
 import { PROTOCOL, isHex } from '../public/js/rem-core.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// public/ is the classic web client (with the owner's Mod tools), served at /classic/.
+// webapp/ is the real Looscid app (github.com/Looscid/Looscid, the app/ folder at the commit in scripts/app-commit.txt),
+// copied in by scripts/fetch-app.sh and served at /. Without webapp/, the classic client is served at / as before.
 const pub = path.join(root, 'public');
+const web = path.join(root, 'webapp');
 const B = PROTOCOL.base;
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.webmanifest': 'application/manifest+json', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.webmanifest': 'application/manifest+json', '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.m4a': 'audio/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.mp4': 'video/mp4', '.webm': 'video/webm', '.wasm': 'application/wasm', '.xml': 'application/xml', '.pdf': 'application/pdf' };
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Rem-Alt, X-Rem-Backup-Key, X-Rem-Owner-Code', 'Access-Control-Max-Age': '86400' };
 const SEC = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'Permissions-Policy': 'geolocation=(), camera=(), microphone=()' };
 const started = Date.now();
@@ -169,15 +174,62 @@ async function backup(req, res) {
   tar.on('close', done); res.on('close', () => { tar.kill(); });
 }
 
-function serveFile(req, res, file, cache) {
+// The Looscid app's pages carry their own Content-Security-Policy (a meta tag), the same one they have on GitHub Pages;
+// the header here only adds what a meta tag can't say: no other website may frame them.
+const APP_HEADERS = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'X-Frame-Options': 'SAMEORIGIN' };
+function serveFile(req, res, file, cache, opts = {}) {
   fs.stat(file, (err, st) => {
-    if (err || !st.isFile()) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...SEC }); return res.end('Not found'); }
+    if (err || !st.isFile()) {
+      if (opts.notFound) return opts.notFound();
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...SEC }); return res.end('Not found');
+    }
     const ext = path.extname(file).toLowerCase();
-    const headers = { 'Content-Type': MIME[ext] || (ext === '.jpg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'application/octet-stream'), 'Content-Length': st.size, 'Cache-Control': cache, ...SEC };
-    if (ext === '.html') headers['Content-Security-Policy'] = `default-src 'self'; img-src 'self' data: blob:; connect-src 'self' wss://${config.host} ws://${config.host}; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`;
-    res.writeHead(200, headers);
+    const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': cache, ETag: etag, 'Accept-Ranges': 'bytes', ...(opts.app ? APP_HEADERS : SEC) };
+    if (ext === '.html') headers['Content-Security-Policy'] = opts.app ? "frame-ancestors 'self'" : `default-src 'self'; img-src 'self' data: blob:; connect-src 'self' wss://${config.host} ws://${config.host}; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`;
+    const status = opts.status || 200;
+    if (status === 200 && req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
+    const range = status === 200 && /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    if (range && (range[1] || range[2])) {
+      let a = range[1] ? Number(range[1]) : Math.max(0, st.size - Number(range[2])), b = range[1] && range[2] ? Math.min(Number(range[2]), st.size - 1) : st.size - 1;
+      if (a > b || a >= st.size) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}`, ...SEC }); return res.end(); }
+      res.writeHead(206, { ...headers, 'Content-Range': `bytes ${a}-${b}/${st.size}`, 'Content-Length': b - a + 1 });
+      if (req.method === 'HEAD') return res.end();
+      return fs.createReadStream(file, { start: a, end: b }).pipe(res);
+    }
+    res.writeHead(status, { ...headers, 'Content-Length': st.size });
     if (req.method === 'HEAD') return res.end();
     fs.createReadStream(file).pipe(res);
+  });
+}
+
+// A path inside a folder, or null if it would climb out of it.
+function inside(dir, p) {
+  const file = path.join(dir, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
+  return file === dir || file.startsWith(dir + path.sep) ? file : null;
+}
+function redirect(res, to) { res.writeHead(302, { Location: to, 'Cache-Control': 'no-cache', ...SEC }); return res.end(); }
+
+// The classic web client, at /classic/ (and /classic/mod for the Mod page).
+function serveClassic(req, res, p) {
+  if (p === '/' || p === '/mod' || p === '/mod/') p = '/index.html';
+  const file = inside(pub, p);
+  if (!file) return send(res, 404, { ok: false, code: 'not_found', message: 'Not found.' });
+  return serveFile(req, res, file, 'no-cache');
+}
+
+// The Looscid app, at /. Works like GitHub Pages: a folder serves its index.html (a folder without its slash gets one),
+// and any other unknown address gets the app's 404.html, which opens the app on that page (?p=...).
+function serveApp(req, res, url, p) {
+  const notFound = () => serveFile(req, res, path.join(web, '404.html'), 'no-cache', { app: true, status: 404 });
+  const file = inside(web, p);
+  if (!file) return notFound();
+  fs.stat(file, (err, st) => {
+    if (!err && st.isDirectory()) {
+      if (!p.endsWith('/')) return redirect(res, url.pathname + '/' + url.search);
+      return serveFile(req, res, path.join(file, 'index.html'), 'no-cache', { app: true, notFound });
+    }
+    return serveFile(req, res, file, 'no-cache', { app: true, notFound });
   });
 }
 
@@ -191,10 +243,14 @@ const server = http.createServer(async (req, res) => {
     let x;
     if ((x = /^\/media\/([0-9a-f]{64}\.(?:jpg|png|webp))$/.exec(url.pathname))) return serveFile(req, res, path.join(config.dataDir, 'media', x[1]), 'public, max-age=31536000, immutable');
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { ok: false, code: 'method', message: 'Not allowed.' });
-    let p = decodeURIComponent(url.pathname); if (p === '/' || p === '/mod' || p === '/mod/') p = '/index.html';
-    const file = path.join(pub, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
-    if (!file.startsWith(pub)) return send(res, 404, { ok: false, code: 'not_found', message: 'Not found.' });
-    return serveFile(req, res, file, 'no-cache');
+    let p; try { p = decodeURIComponent(url.pathname); } catch { return send(res, 400, { ok: false, code: 'bad_path', message: 'That address is not valid.' }); }
+    if (p === '/classic') return redirect(res, '/classic/' + url.search);
+    if (p.startsWith('/classic/')) return serveClassic(req, res, p.slice('/classic'.length));
+    if (!fs.existsSync(path.join(web, 'index.html'))) return serveClassic(req, res, p);
+    if (p === '/mod' || p === '/mod/') return redirect(res, '/classic/mod' + url.search + url.hash);
+    const lo = /^\/looscid(\/|$)/i.exec(p);
+    if (lo) return redirect(res, '/' + url.pathname.slice(lo[0].length) + url.search);
+    return serveApp(req, res, url, p);
   } catch (e) { return oops(res, e); }
 });
 
