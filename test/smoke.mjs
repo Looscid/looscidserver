@@ -124,6 +124,12 @@ const im = await B.req('POST', '/import', { objects: [old1, old2, old1] });
 ok(im.imported.length === 1 && im.needs_alt.length === 1 && im.skipped.length === 1, 'import: 1 in, 1 flagged for alt text, duplicate skipped', JSON.stringify({ i: im.imported.length, n: im.needs_alt.length, s: im.skipped.length }));
 ok((await B.get('/import/flags')).items.length === 1, 'import flag listed for the user to fix');
 const prof = await C.get(`/dreamors/${B.pubkey}/dreams`); ok(prof.items.some((x) => x.id === old1.id && x.imported), 'imported Dream on profile at its old time');
+// import keeps replies in their thread; a reply to a Dream that isn't on the server is refused (never turned into a loose Dream)
+const oldReply = await rem.signObject('dream', { text: 'an old local reply ' + rnd, audience: 'public', reply_to: old1.id }, B.sk, Date.now() - 29 * 864e5);
+const orphan = await rem.signObject('dream', { text: 'a reply to a Nostr Dream', audience: 'public', reply_to: 'ab'.repeat(32) }, B.sk, Date.now() - 28 * 864e5);
+const im2 = await B.req('POST', '/import', { objects: [oldReply, orphan] });
+ok(im2.imported.length === 1 && im2.refused.length === 1 && im2.refused[0].code === 'parent_missing', 'import: a reply keeps its thread, a reply to a missing Dream is refused', JSON.stringify(im2));
+const th2 = await C.get(`/dreams/${old1.id}/thread`); ok((th2.replies || []).some((x) => x.id === oldReply.id), 'imported reply shows in its thread');
 // scheduled publishes
 await sleep(Math.max(0, sd.scheduled_for - Date.now()) + 11000);
 ok(!!(await C.get('/objects/' + sd.id)).item, 'scheduled Dream published on time');
