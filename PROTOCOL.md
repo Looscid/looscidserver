@@ -125,6 +125,9 @@ their device before joining the server. Nothing is uploaded unless the person ch
 
 - Each Dream must be signed by the signed-in LooscidID and keeps its original `at` (any past time since 2020).
 - Same `id` already on the server = skipped (safe to retry).
+- Replies keep their thread: a Dream with `reply_to` (or `quote`) is imported only when that Dream is already on the
+  server (send parents first; one request is handled in order). Otherwise it comes back in `refused` with code
+  `parent_missing` and stays on the device. It is never turned into a loose Dream.
 - Imported Dreams appear on the profile in their original time order; they are not pushed into anyone's
   Dreamline as new.
 - A Dream whose images have no alt text is **not dropped silently**: it comes back in `needs_alt` and stays
@@ -133,6 +136,16 @@ their device before joining the server. Nothing is uploaded unless the person ch
 - Images must be uploaded with `/media` first (so the server can check and clean them).
 
 Answer: `{ imported: [ids], skipped: [...], needs_alt: [{ id, images, message }], refused: [{ id, code, message }] }`.
+
+### Backup file (`.looscid`)
+
+The Looscid app and this web client save and restore the same backup file (`public/js/looscid-backup.js`): your profile,
+Dreams, replies, Chats, likes, follows, settings and your LooscidID key in one file, locked with a passcode you choose.
+Outside: `{ "looscid_backup": 1, "kdf": { "name": "PBKDF2", "hash": "SHA-256", "iterations": 600000, "salt" },
+"cipher": { "name": "AES-GCM", "iv" }, "data" }` (base64; AES-GCM 256-bit with additional data `looscid-backup-v1`).
+Inside: `{ looscid_backup_data: 1, from: "app"|"home", key: { nsec, pubkey }, profile, server, dreams, rem_objects, app, home }`.
+Nothing is readable without the passcode, and nobody can recover a forgotten one. Restoring on a home signs in with the
+key, imports the signed Dreams (`/import`, original times) and signs follows and likes again with the same key.
 
 ## 4. The live stream (WebSocket)
 
