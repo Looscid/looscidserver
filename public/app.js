@@ -1,8 +1,8 @@
 // Looscid home: a small web client for this server. VoiceOver first.
 // Local-first: your LooscidID stays on this device, a copy of everything you made is kept here (IndexedDB),
 // you can read what you have and write while offline (it sends when you are back), and you can export it all.
-import { RemClient, rem } from './js/rem-client.js?v=20261101c';
-import * as backup from './js/looscid-backup.js?v=20261101c';
+import { RemClient, rem } from './js/rem-client.js?v=20261101d';
+import * as backup from './js/looscid-backup.js?v=20261101d';
 
 const $ = (s) => document.querySelector(s);
 const view = $('#view'), title = $('#title'), announceEl = $('#announce'), statusEl = $('#status');
@@ -410,7 +410,7 @@ async function settingsView() {
   const th = h('select', { id: 's-theme', onchange: () => { localStorage.setItem(LS.theme, th.value); applyTheme(); say('Theme changed'); } }, h('option', { value: '' }, 'Same as my device'), h('option', { value: 'dark' }, 'Dark'), h('option', { value: 'light' }, 'Light'));
   th.value = localStorage.getItem(LS.theme) || '';
   view.append(h('h2', {}, 'Look and sign out'), h('section', { cls: 'card', 'aria-label': 'Look and sign out' }, h('label', { for: 's-theme' }, 'Theme'), th,
-    h('div', { cls: 'actions' }, h('button', { cls: 'danger', onclick: async () => { if (!confirm('Sign out and remove your LooscidID and copy from this device? Make sure you backed up your recovery phrase first.')) return; await client.req('POST', '/auth/logout').catch(() => {}); localStorage.clear(); await clearLocal().catch(() => {}); location.hash = ''; location.reload(); } }, 'Sign out of this device'))));
+    h('div', { cls: 'actions' }, h('button', { cls: 'danger', onclick: async () => { if (!confirm('Sign out and remove your LooscidID and copy from this device? Make sure you backed up your recovery phrase first.')) return; await client.req('POST', '/auth/logout').catch(() => {}); for (const k of Object.keys(localStorage)) if (k.startsWith('looscid.')) localStorage.removeItem(k); await clearLocal().catch(() => {}); location.hash = ''; location.reload(); } }, 'Sign out of this device'))));
 }
 // ---------- backup file (.looscid) ----------
 // One file with your profile, Dreams, replies, Chats, likes, follows, settings AND your LooscidID key, locked with a
@@ -675,6 +675,6 @@ applyTheme();
       else client.token = null;
     }
   }
-  if (location.pathname.startsWith('/mod') && client.token) location.hash = '#mod';
+  if (/^(\/classic)?\/mod(\/|$)/.test(location.pathname) && client.token) location.hash = '#mod';
   await route();
 })();
