@@ -232,7 +232,7 @@ export async function acceptObject(o) {
   if (!(await verifyObject(o))) fail(400, 'bad_signature', 'The signature does not match. The object was not signed by that LooscidID, or it was changed after signing.');
   const me = member(o.by);
   if (!me) fail(403, 'not_member', 'That LooscidID is not a member of this home. Join with an invite first.');
-  if (me.suspended) fail(403, 'suspended', 'This account is suspended by the moderators.');
+  if (me.suspended) fail(403, 'suspended', 'This LooscidID is suspended by the moderators.');
   const dup = one('SELECT seq FROM objects WHERE id = ?', o.id);
   if (dup) return { ok: true, id: o.id, seq: dup.seq, duplicate: true };
   const after = [];
@@ -411,7 +411,7 @@ function apply(o, me, after) {
       return { seq: log(o), role: b.accept ? ri.role : me.role };
     }
     case 'leave': {
-      if (me.role === 'owner') fail(403, 'owner_cannot_leave', 'The owner account cannot leave. Hand ownership to someone first.');
+      if (me.role === 'owner') fail(403, 'owner_cannot_leave', 'The owner\'s LooscidID cannot leave. Hand ownership to someone first.');
       after.push(() => purge(by));
       return { seq: 0, left: true };
     }
@@ -498,7 +498,7 @@ export function bindOwner({ pubkey, name, replace }) {
   if (cur && !replace) fail(409, 'owner_exists', `@${cur.handle} is already the owner. Send "replace": true to move ownership to this key (for example after a lost key).`);
   tx(() => {
     if (cur) { run(`UPDATE dreamors SET role = 'member', handle = ? WHERE pubkey = ?`, (cur.handle + '_old').slice(0, 20), cur.pubkey); run('DELETE FROM dreamors_fts WHERE pubkey = ?', cur.pubkey); }
-    const squat = byHandle(config.ownerHandle); if (squat && squat.pubkey !== pubkey) fail(409, 'handle_taken', 'Someone else holds the owner handle. Remove that account first.');
+    const squat = byHandle(config.ownerHandle); if (squat && squat.pubkey !== pubkey) fail(409, 'handle_taken', 'Someone else holds the owner handle. Remove that LooscidID first.');
     const m = member(pubkey);
     const claim = one('SELECT name FROM owner_claims WHERE pubkey = ?', pubkey);
     if (m) run(`UPDATE dreamors SET handle = ?, role = 'owner', suspended = 0 WHERE pubkey = ?`, config.ownerHandle, pubkey);
@@ -540,7 +540,7 @@ export async function login({ pubkey, nonce, sig }) {
   if (!c || c.pubkey !== pubkey || c.exp < now()) fail(401, 'bad_challenge', 'That sign-in attempt expired. Try again.');
   if (!(await verifyText(sig, loginText(nonce), pubkey))) fail(401, 'bad_signature', 'The signature does not match that LooscidID.');
   const m = member(pubkey); if (!m) fail(403, 'not_member', 'That LooscidID is not a member of this home yet. Join with an invite.');
-  if (m.suspended) fail(403, 'suspended', 'This account is suspended by the moderators.');
+  if (m.suspended) fail(403, 'suspended', 'This LooscidID is suspended by the moderators.');
   return { ...newSession(pubkey), me: dreamorView(m) };
 }
 export function session(token) {
@@ -580,7 +580,7 @@ export async function join({ invite, handle, pubkey, age_ok, sig, name }) {
   else {
     const inv = one('SELECT * FROM invites WHERE code = ?', invite);
     if (!inv || inv.revoked) fail(403, 'bad_invite', 'That invite code does not work. Check it, or ask for a new one.');
-    if (inv.used_by) fail(403, 'invite_used', 'That invite code was already used. Each code makes one account.');
+    if (inv.used_by) fail(403, 'invite_used', 'That invite code was already used. Each code makes one LooscidID.');
     const by = member(inv.by); if (!by || by.suspended) fail(403, 'bad_invite', 'That invite code does not work any more.');
     invitedBy = inv.by;
   }
@@ -726,14 +726,14 @@ export function modAction(staff, args) {
       return ok({ handle: m.handle });
     }
     case 'remove_account': {
-      if (staff.role !== 'owner') fail(403, 'owner_only', 'Only the owner can remove an account.');
-      const m = needMember(target); if (m.role === 'owner') fail(403, 'owner', 'The owner account cannot be removed.');
+      if (staff.role !== 'owner') fail(403, 'owner_only', 'Only the owner can remove a LooscidID.');
+      const m = needMember(target); if (m.role === 'owner') fail(403, 'owner', 'The owner\'s LooscidID cannot be removed.');
       purge(m.pubkey); return ok();
     }
     case 'rebind_key': {
       // A lost key: give the handle (and the account's place) to a new LooscidID, after the owner checked it is really them.
-      if (staff.role !== 'owner') fail(403, 'owner_only', 'Only the owner can move an account to a new key.');
-      fail(501, 'not_yet', 'Moving an account to a new key is planned for the next version.');
+      if (staff.role !== 'owner') fail(403, 'owner_only', 'Only the owner can move a LooscidID to a new key.');
+      fail(501, 'not_yet', 'Moving a LooscidID to a new key is planned for the next version.');
     }
     default: fail(422, 'bad_action', 'Unknown action.');
   }
