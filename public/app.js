@@ -105,7 +105,7 @@ function showNewButton(stream) {
   if (n === 1 || n % 5 === 0) say(`${plural(n, 'new Dream')} in ${stream === 'dreamline' ? 'Dreamline' : 'Discover'}.`);
 }
 let unseen = 0;
-function bumpAlerts(n, set) { unseen = set ? n : unseen + n; const a = $('#alerts-link'); a.replaceChildren('Alerts', unseen ? h('span', { cls: 'badge' }, h('span', { cls: 'sr-only' }, ', '), String(unseen), h('span', { cls: 'sr-only' }, ' new')) : ''); }
+function bumpAlerts(n, set) { unseen = set ? n : unseen + n; const a = $('#alerts-link'); a.replaceChildren('Inbox', unseen ? h('span', { cls: 'badge' }, h('span', { cls: 'sr-only' }, ', '), String(unseen), h('span', { cls: 'sr-only' }, ' new')) : ''); }
 
 // ---------- Dreams ----------
 function nameLink(d) { return h('a', { href: '#@' + d.handle }, d.name, ' ', h('span', { cls: 'handle' }, '@' + d.handle)); }
@@ -319,7 +319,7 @@ async function searchView(q = '') {
   if (q) await run(); else inp.focus();
 }
 async function alertsView() {
-  setView('alerts', 'Alerts');
+  setView('alerts', 'Inbox');
   try {
     const r = await client.get('/alerts');
     const ul = h('ul', { cls: 'plain' });
@@ -331,7 +331,7 @@ async function alertsView() {
       } else extra = a.dream ? h('a', { href: '#dream/' + a.dream.id }, 'Open the Dream') : a.kind === 'chat' ? h('a', { href: '#chat/' + a.actor.pubkey }, 'Open the Chat') : h('a', { href: '#@' + a.actor.handle }, `Open ${a.actor.name}'s profile`);
       ul.append(h('li', { cls: 'card' }, h('p', {}, alertText(a), ' ', h('span', { cls: 'meta' }, ago(a.at))), extra));
     }
-    view.append(r.items.length ? ul : h('p', {}, 'No alerts yet.'));
+    view.append(r.items.length ? ul : h('p', {}, 'Nothing in your Inbox yet.'));
     await client.req('POST', '/alerts/seen'); bumpAlerts(0, true);
   } catch (e) { view.append(errBox(e)); }
 }
@@ -650,11 +650,11 @@ async function adminView() {
       card.append(acts); view.append(card);
     }
     if (!r.items.length) view.append(h('p', {}, 'No open reports.'));
-    // role invites (admins and moderators are invited, and accept in their Alerts)
+    // role invites (admins and moderators are invited, and accept in their Inbox)
     const rh = h('input', { type: 'text', id: 'role-handle', autocomplete: 'off', autocapitalize: 'none' });
     const rr = h('select', { id: 'role-role' }, h('option', { value: 'mod' }, 'Moderator'), me.role === 'owner' ? h('option', { value: 'admin' }, 'Admin') : null);
     const rmsg = h('div', {});
-    view.append(h('h2', {}, 'Invite a moderator or admin'), h('form', { cls: 'card', onsubmit: async (e) => { e.preventDefault(); rmsg.replaceChildren(); try { const r = await client.req('POST', '/mod/action', { target: rh.value.trim().replace(/^@/, '').toLowerCase(), action: 'invite_role', role: rr.value }); rmsg.append(h('p', {}, `Invite sent to @${r.to}. It shows up in their Alerts with Accept and Decline.`)); say('Role invite sent'); } catch (er) { rmsg.append(errBox(er)); } } },
+    view.append(h('h2', {}, 'Invite a moderator or admin'), h('form', { cls: 'card', onsubmit: async (e) => { e.preventDefault(); rmsg.replaceChildren(); try { const r = await client.req('POST', '/mod/action', { target: rh.value.trim().replace(/^@/, '').toLowerCase(), action: 'invite_role', role: rr.value }); rmsg.append(h('p', {}, `Invite sent to @${r.to}. It shows up in their Inbox with Accept and Decline.`)); say('Role invite sent'); } catch (er) { rmsg.append(errBox(er)); } } },
       h('label', { for: 'role-handle' }, 'Their handle'), rh, h('label', { for: 'role-role' }, 'Role'), rr, rmsg, h('div', { cls: 'actions' }, h('button', { cls: 'primary' }, 'Send role invite'))));
     const lg = await client.get('/mod/log');
     view.append(h('h2', {}, 'Role invites and moderation log'));

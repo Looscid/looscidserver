@@ -18,7 +18,7 @@ with sync_playwright() as p:
     pg.fill('#in-key', seed['owner_nsec']); pg.click('button:has-text("Sign in")')
     pg.wait_for_function("location.hash === '#dreamline'", timeout=15000)
     navs = pg.eval_on_selector_all('#nav a', 'els => els.map(e => e.firstChild.textContent)')
-    ok(navs == ['Dreamline','Discover','Search','Chats','Alerts','More'], 'nav is ' + ', '.join(navs))
+    ok(navs == ['Dreamline','Discover','Search','Chats','Inbox','More'], 'nav is ' + ', '.join(navs))
     pg.click('#nav a[href="#more"]'); pg.wait_for_selector('button.cat')
     ok(pg.locator('h1').count() == 1 and pg.inner_text('h1') == 'More', 'More h1')
     ok('More' in active(pg), 'focus on More heading: ' + active(pg))

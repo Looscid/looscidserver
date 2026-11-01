@@ -18,7 +18,7 @@ Live home: https://looscidserver.sites.tab.bot/
 - Dreams with content warnings, "read aloud as" text, replies, quotes, ReDreams, likes, edits with history,
   deletes, polls and scheduled Dreams.
 - Dreamline (you + people you follow, newest first, no algorithm) and Discover.
-- New Dreams and alerts arrive instantly over one WebSocket (the Rem live stream). Nothing jumps around:
+- New Dreams and Inbox items arrive instantly over one WebSocket (the Rem live stream). Nothing jumps around:
   clients show "3 new Dreams" and the reader chooses.
 - Chats between mutuals, end-to-end encrypted (NIP-44 v2), delivered even when the other person is offline.
 - Image uploads: alt text is required, and location and camera data are stripped from photos.
