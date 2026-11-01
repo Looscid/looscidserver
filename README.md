@@ -27,8 +27,10 @@ Live home: https://looscidserver.sites.tab.bot/
 - Teen-safe: invite-only with an invite tree, 13+, no email, phone or location collected, blocks that work
   both ways, reports, moderators and admins (offered by invite, accepted in notifications), a mod page.
 - Backups: an owner-only download of the database and media, plus a safety copy every 6 hours.
-- A small accessible web client at `/` (VoiceOver first: one heading per Dream, real buttons, one polite live
-  region, dark and light).
+- The real Looscid app at `/`, the same app as https://looscid.github.io/Looscid/ (bottom tabs and all). It starts
+  in Local mode; Settings, LooscidID, Looscid server signs in to this server and turns on sync.
+- The classic web client at `/classic/` (VoiceOver first: one heading per Dream, real buttons, one polite live
+  region, dark and light), with the owner's Mod page at `/classic/mod`.
 
 ## Run your own home
 
@@ -38,8 +40,12 @@ Needs Node 20 or newer, `tar` and `curl`. No other dependencies to install.
 git clone https://github.com/2three1y/looscidserver
 cd looscidserver
 sh scripts/setup-sqlite.sh          # fetches SQLite's native file for your Node version
+sh scripts/fetch-app.sh             # copies the Looscid app (pinned commit in scripts/app-commit.txt) into webapp/
 REM_PUBLIC_HOST=localhost:8080 node server/main.mjs
 ```
+
+`webapp/` isn't in git. Without it the classic client is served at `/` as well. To move to a newer app, put its
+commit in `scripts/app-commit.txt`, run `sh scripts/fetch-app.sh` again and restart.
 
 Then open http://localhost:8080/. Settings are environment variables (see `server/config.mjs`):
 
@@ -62,7 +68,8 @@ and `node test/smoke.mjs <home-url> <secrets.json>` (57 end-to-end checks; it cl
 ## Layout
 
 - `public/js/rem-core.js` the protocol rules shared by server and clients (objects, signatures, LooscidID, recovery phrase, NIP-44).
-- `public/js/rem-client.js` a small client library. `public/app.js` the web client.
+- `public/js/rem-client.js` a small client library. `public/app.js` the classic web client (served at `/classic/`).
+- `webapp/` the Looscid app, made by `scripts/fetch-app.sh` (not in git).
 - `server/` the home: `main.mjs` (HTTP + routes), `rem.mjs` (rules), `db.mjs` (SQLite), `live.mjs` (WebSocket),
   `media.mjs` (image cleaning), `linkcard.mjs` (safe link cards), `config.mjs` (settings).
 
