@@ -61,12 +61,6 @@ ul.plain { list-style: none; padding: 0; } ul.plain li { margin: .4rem 0; }
 .ok { color: var(--text); border-left: 4px solid var(--accent2); padding: .3rem .7rem; font-weight: 600; }
 .ok:focus { outline: none; }
 .foot { max-width: 44rem; margin: 2rem auto; padding: 0 1rem 2rem; color: var(--muted); font-size: .9rem; }
-.mode { background: var(--panel2); border-left: 4px solid var(--accent2); padding: .5rem .8rem; border-radius: 8px; font-weight: 600; }
-ul.cats { list-style: none; padding: 0; margin: 0; display: grid; gap: .6rem; }
-button.cat { width: 100%; text-align: left; border-radius: 14px; padding: .75rem 1rem; background: var(--panel); display: block; }
-.cat-name { display: block; font-weight: 700; font-size: 1.05rem; }
-.cat-sub { display: block; color: var(--muted); font-size: .9rem; }
-.back-row { margin: 0 0 .6rem; }
 .badge { background: var(--accent2); color: #062a20; border-radius: 999px; padding: 0 .45rem; font-size: .8rem; font-weight: 700; margin-left: .25rem; }
 @media (prefers-reduced-motion: no-preference) { button, nav a { transition: background-color .15s; } }
 @media (max-width: 600px) {

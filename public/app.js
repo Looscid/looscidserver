@@ -1,12 +1,12 @@
 // Looscid home: a small web client for this server. VoiceOver first.
 // Local-first: your LooscidID stays on this device, a copy of everything you made is kept here (IndexedDB),
 // you can read what you have and write while offline (it sends when you are back), and you can export it all.
-import { RemClient, rem } from './js/rem-client.js?v=20261101a';
-import * as backup from './js/looscid-backup.js?v=20261101a';
+import { RemClient, rem } from './js/rem-client.js?v=20261101c';
+import * as backup from './js/looscid-backup.js?v=20261101c';
 
 const $ = (s) => document.querySelector(s);
 const view = $('#view'), title = $('#title'), announceEl = $('#announce'), statusEl = $('#status');
-const LS = { key: 'looscid.sk', token: 'looscid.token', cursor: 'looscid.syncCursor', outbox: 'looscid.outbox', theme: 'looscid.theme', cache: 'looscid.cache.', lastSync: 'looscid.lastSync' };
+const LS = { key: 'looscid.sk', token: 'looscid.token', cursor: 'looscid.syncCursor', outbox: 'looscid.outbox', theme: 'looscid.theme', cache: 'looscid.cache.' };
 let me = null, staff = false, ws = null, pending = { dreamline: [], discover: [] }, currentView = '', home = { owner_claimed: true };
 const client = new RemClient({ home: '' });
 
@@ -29,11 +29,10 @@ function status(msg) { statusEl.hidden = !msg; statusEl.textContent = msg || '';
 const ago = (t) => { const s = Math.round((Date.now() - t) / 1000); if (s < 0) { const m = Math.round(-s / 60); if (m < 60) return `in ${m} minute${m === 1 ? '' : 's'}`; const hr = Math.round(m / 60); return hr <= 48 ? `in ${hr} hour${hr === 1 ? '' : 's'}` : `on ${new Date(t).toLocaleString('en-US', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`; } if (s < 60) return 'just now'; const m = Math.round(s / 60); if (m < 60) return `${m} minute${m === 1 ? '' : 's'} ago`; const hr = Math.round(m / 60); if (hr < 24) return `${hr} hour${hr === 1 ? '' : 's'} ago`; return new Date(t).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); };
 const plural = (n, w, many) => `${n} ${n === 1 ? w : many || w + 's'}`;
 function setView(name, heading) {
-  currentView = name; if (!name.startsWith('more')) moreReturn = ''; title.textContent = heading; document.title = `${heading} · Looscid`;
+  currentView = name; title.textContent = heading; document.title = `${heading} · Looscid`;
   view.replaceChildren(); window.scrollTo(0, 0);
-  // Profile, Settings and Admin live under More now (Oct 31 2026, Carter: fewer buttons, grouped), so those views light up More.
-  const top = name.split('/')[0], navName = top === 'me' ? 'more' : top;
-  for (const a of document.querySelectorAll('#nav a')) { if (a.getAttribute('href') === '#' + navName) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
+  for (const a of document.querySelectorAll('#nav a')) a.toggleAttribute('aria-current', a.getAttribute('href') === '#' + name) || a.removeAttribute('aria-current');
+  for (const a of document.querySelectorAll('#nav a')) if (a.getAttribute('href') === '#' + name) a.setAttribute('aria-current', 'page');
   title.setAttribute('tabindex', '-1');
 }
 const focusTitle = () => title.focus();
@@ -51,7 +50,6 @@ async function clearLocal() { const d = await idb(); await new Promise((res) => 
 async function syncDown() {
   let cur = Number(localStorage.getItem(LS.cursor) || 0), r, n = 0;
   do { r = await client.get('/sync', { since: cur }); await storeObjects(r.objects); n += r.objects.length; cur = r.cursor; localStorage.setItem(LS.cursor, cur); } while (r.more);
-  localStorage.setItem(LS.lastSync, String(Date.now())); refreshMode();
   return n;
 }
 
@@ -72,8 +70,7 @@ async function flushOutbox() {
   localStorage.setItem(LS.outbox, JSON.stringify(left));
   if (list.length > left.length) say(`${plural(list.length - left.length, 'saved item')} sent.`);
 }
-window.addEventListener('online', () => { flushOutbox(); connectLive(); if (me) { say('Back online. Syncing with the Looscid server.'); syncDown().catch(() => {}); } refreshMode(); });
-window.addEventListener('offline', () => { if (me) say('You are offline. Your copy on this device still works and syncs when you are back.'); refreshMode(); });
+window.addEventListener('online', () => { flushOutbox(); connectLive(); });
 
 // ---------- live stream ----------
 function connectLive() {
@@ -282,7 +279,7 @@ async function profileView(handle) {
       if (d.you.follows_you) acts.append(h('p', { cls: 'meta' }, 'Follows you.'));
       if (d.you.mutual) acts.append(h('a', { cls: 'btn', href: '#chat/' + d.pubkey }, `Chat with ${d.name}`));
       acts.append(h('button', { cls: 'danger', onclick: async () => { const b = d.you.blocked; if (!b && !confirm(`Block ${d.name}? You will not see each other and they cannot follow or Chat with you. They are not told.`)) return; try { await send(b ? 'unblock' : 'block', { who: d.pubkey }); say(b ? 'Unblocked' : 'Blocked'); profileView(handle); } catch (e) { say(e.message); } } }, d.you.blocked ? 'Unblock' : 'Block'));
-      acts.append(h('button', { onclick: () => reportForm(d.pubkey, view, 'LooscidID') }, 'Report LooscidID'));
+      acts.append(h('button', { onclick: () => reportForm(d.pubkey, view, 'account') }, 'Report account'));
       view.append(acts);
     }
     view.append(h('h2', {}, 'Dreams'));
@@ -371,62 +368,18 @@ async function chatView(pk) {
     view.append(f);
   } catch (e) { view.append(errBox(e)); }
 }
-// ---------- More (Oct 31 2026, Carter: "instead of a bunch of options, buttons like Looscid account"; the category is LooscidID, Carter's word) ----------
-// More is a short list of category buttons. Each opens its own page with one h1, a Back to More button first,
-// and Escape goes back. Back puts VoiceOver focus on the category button you came from.
-function modeText() {
-  const t = Number(localStorage.getItem(LS.lastSync) || 0);
-  const when = t ? `Last synced ${ago(t)}.` : 'Not synced yet on this device.';
-  const off = !navigator.onLine;
-  return `Mode: Looscid server. You're on the Looscid server as @${me?.handle || 'you'}, at ${location.host}. ${off ? 'Offline right now: your copy on this device still works and syncs when you are back. ' : ''}${when}`;
-}
-function modeLine() { return h('p', { cls: 'mode', 'data-mode': '' }, modeText()); }
-function refreshMode() { if (!me) return; for (const p of document.querySelectorAll('[data-mode]')) p.textContent = modeText(); }
-setInterval(refreshMode, 60000);
-const MORE_CATS = () => [
-  { id: 'looscidid', name: 'LooscidID', inside: ['your profile', 'your key', 'backup file', 'sign out'], view: idView },
-  { id: 'server', name: 'Server', inside: ['connection and sync', 'export everything', 'invites'], view: serverView },
-  { id: 'privacy', name: 'Privacy & safety', inside: ['blocked people', 'who can Chat with you', 'reporting'], view: privacyView },
-  staff ? { id: 'admin', name: 'Admin', inside: ['reports', 'moderators and admins', 'moderation log', 'members'], note: 'Only you and the moderators see this.', view: adminView } : null,
-  { id: 'look', name: 'App settings', inside: ['theme'], view: lookView },
-  { id: 'help', name: 'Help & about', inside: ['what the Looscid server is', 'local or server', 'source code'], view: helpView },
-].filter(Boolean);
-let moreReturn = '';
-function moreView() {
-  setView('more', 'More');
-  view.append(modeLine());
-  const cats = MORE_CATS();
-  view.append(h('ul', { cls: 'cats', role: 'list' }, cats.map((c) => {
-    const hint = `${plural(c.inside.length, 'item')}: ${c.inside.join(', ')}.${c.note ? ' ' + c.note : ''}`;
-    // VoiceOver: the name is just the category ("LooscidID, button"), then what's inside as the hint.
-    return h('li', {}, h('button', { type: 'button', cls: 'cat', id: 'cat-' + c.id, 'aria-labelledby': 'cat-' + c.id + '-n', 'aria-describedby': 'cat-' + c.id + '-d', onclick: () => { location.hash = '#more/' + c.id; } },
-      h('span', { cls: 'cat-name', id: 'cat-' + c.id + '-n' }, c.name), h('span', { cls: 'cat-sub', id: 'cat-' + c.id + '-d' }, hint)));
-  })));
-}
-function moreSub(id, heading) {
-  setView('more/' + id, heading);
-  moreReturn = id;
-  view.append(h('div', { cls: 'actions back-row' }, h('button', { type: 'button', cls: 'back', onclick: backToMore }, 'Back to More')));
-}
-function backToMore() { location.hash = '#more'; }
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || !currentView.startsWith('more/')) return;
-  if (e.target.closest && e.target.closest('input, textarea, select, details[open] summary')) return;
-  e.preventDefault(); backToMore();
-});
-async function idView() {
-  moreSub('looscidid', 'LooscidID');
-  view.append(modeLine());
-  view.append(h('h2', {}, 'Your profile page'), h('p', {}, h('a', { href: '#me' }, `See your profile page, @${me.handle}`)));
+async function settingsView() {
+  setView('settings', 'Settings');
+  // profile
   const { me: m } = await client.get('/me').catch(() => ({ me }));
   const nm = h('input', { type: 'text', id: 's-name', value: m.name || '', maxlength: 50 }), bio = h('textarea', { id: 's-bio', maxlength: 300 }), pr = h('input', { type: 'text', id: 's-pro', value: m.pronouns || '', maxlength: 30 });
   bio.value = m.bio || '';
-  view.append(h('h2', {}, 'Edit your profile'), h('form', { cls: 'card', onsubmit: async (e) => { e.preventDefault(); try { await send('profile', { name: nm.value, bio: bio.value, pronouns: pr.value, chats_from: 'mutuals' }); say('Profile saved'); } catch (er) { say(er.message); } } },
+  view.append(h('h2', {}, 'Your profile'), h('form', { cls: 'card', onsubmit: async (e) => { e.preventDefault(); try { await send('profile', { name: nm.value, bio: bio.value, pronouns: pr.value, chats_from: 'mutuals' }); say('Profile saved'); } catch (er) { say(er.message); } } },
     h('label', { for: 's-name' }, 'Display name'), nm, h('label', { for: 's-bio' }, 'Bio'), bio, h('label', { for: 's-pro' }, 'Pronouns (optional)'), pr, h('div', { cls: 'actions' }, h('button', { cls: 'primary' }, 'Save profile'))));
   // key backup
   const sk = client.sk; const phraseBox = h('div', {});
-  view.append(h('h2', {}, 'Your key'), h('section', { cls: 'card', 'aria-label': 'Your key' },
-    h('p', {}, 'Your LooscidID is you on Looscid. Its key lives on this device and is never sent to the server. Back it up: with it you can sign in on any device and everything syncs back. Without it, nobody can get your LooscidID back.'),
+  view.append(h('h2', {}, 'Your LooscidID'), h('section', { cls: 'card', 'aria-label': 'LooscidID backup' },
+    h('p', {}, 'Your LooscidID is your account. It lives on this device and is never sent to the server. Back it up: with it you can sign in on any device and everything syncs back. Without it, nobody can get your account back.'),
     h('p', { cls: 'meta' }, `Public key (safe to share): ${rem.npubEncode(me.pubkey)}`),
     h('div', { cls: 'actions' },
       h('button', { onclick: async () => { phraseBox.replaceChildren(h('p', {}, 'Your 24-word recovery phrase. Write it down or save it in your password manager. Anyone with these words can be you.'), h('p', { cls: 'phrase', tabindex: '-1', id: 'phrase' }, await rem.keyToPhrase(sk)), h('button', { onclick: () => phraseBox.replaceChildren() }, 'Hide recovery phrase')); $('#phrase').focus(); } }, 'Show recovery phrase'),
@@ -435,18 +388,13 @@ async function idView() {
     phraseBox));
   // backup file (Oct 31 2026, Carter's idea: one file with everything AND the key, locked with a passcode)
   view.append(h('h2', { id: 'backup-h' }, 'Backup file'), backupSection());
-  view.append(h('h2', {}, 'Sign out'), h('section', { cls: 'card', 'aria-label': 'Sign out' },
-    h('p', {}, 'Signing out removes your LooscidID and your copy from this device. Your Dreams stay on the Looscid server; sign back in with your key or backup file.'),
-    h('div', { cls: 'actions' }, h('button', { cls: 'danger', onclick: async () => { if (!confirm('Sign out and remove your LooscidID and copy from this device? Make sure you backed up your recovery phrase first.')) return; await client.req('POST', '/auth/logout').catch(() => {}); localStorage.clear(); await clearLocal().catch(() => {}); location.hash = ''; location.reload(); } }, 'Sign out of this device'))));
-}
-async function serverView() {
-  moreSub('server', 'Server');
-  view.append(h('h2', {}, 'Where you are'), h('section', { cls: 'card', 'aria-label': 'Where you are' }, modeLine(),
-    h('p', {}, 'This device keeps its own copy of everything you made (local-first), and syncs it through the Looscid server so it is on all your devices.'),
+  // data
+  view.append(h('h2', {}, 'Your data'), h('section', { cls: 'card', 'aria-label': 'Your data' },
+    h('p', {}, 'Looscid is local-first and syncs through the Looscid server. This device keeps its own copy of everything you made, and you can take it all with you.'),
     h('div', { cls: 'actions' },
       h('button', { onclick: async () => { try { const n = await syncDown(); say(`Synced. ${plural(n, 'new item')}.`); } catch (e) { say(e.message); } } }, 'Sync now'),
       h('button', { onclick: async () => { const objs = await allObjects(); download(`looscid-${me.handle}-export.json`, { exported_at: new Date().toISOString(), home: location.host, me, objects: objs }); say(`Exported ${plural(objs.length, 'item')}.`); } }, 'Export everything (works offline)'))));
-  view.append(h('h2', {}, 'Using the Looscid app too?'), h('p', {}, 'In the Looscid app, the same LooscidID connects to this server in Settings, then LooscidID, then Looscid server. The top of the app\u2019s More tab says which mode you are in.'));
+  // invites
   const invBox = h('div', {});
   view.append(h('h2', {}, 'Invites'), h('section', { cls: 'card', 'aria-label': 'Invites' }, invBox));
   async function loadInv() {
@@ -458,46 +406,11 @@ async function serverView() {
     } catch (e) { invBox.append(errBox(e)); }
   }
   loadInv();
-}
-async function privacyView() {
-  moreSub('privacy', 'Privacy & safety');
-  const list = h('ul', { cls: 'plain' }, h('li', {}, 'Checking\u2026'));
-  view.append(h('h2', {}, 'Blocked people'), h('p', { cls: 'hint' }, 'To block someone, open their profile and choose Block. They are not told.'), list);
-  try {
-    const st = new Map();
-    for (const o of (await allObjects()).filter((o) => o.by === me.pubkey && (o.type === 'block' || o.type === 'unblock') && o.body?.who).sort((x, y) => x.at - y.at)) st.set(o.body.who, o.type === 'block');
-    const pks = [...st].filter(([, b]) => b).map(([pk]) => pk);
-    list.replaceChildren();
-    if (!pks.length) list.append(h('li', {}, 'You have not blocked anyone.'));
-    for (const pk of pks) {
-      const d = await client.get('/dreamors/' + pk).then((r) => r.dreamor).catch(() => null);
-      if (d && d.you && !d.you.blocked) continue;
-      const li = h('li', {}, d ? nameLink(d) : `Someone (${pk.slice(0, 8)}\u2026)`, ' ');
-      li.append(h('button', { onclick: async () => { try { await send('unblock', { who: pk }); li.remove(); say(`Unblocked ${d ? d.name : 'them'}`); if (!list.children.length) list.append(h('li', {}, 'You have not blocked anyone.')); } catch (e) { say(e.message); } } }, d ? `Unblock ${d.name}` : 'Unblock'));
-      list.append(li);
-    }
-    if (!list.children.length) list.append(h('li', {}, 'You have not blocked anyone.'));
-  } catch (e) { list.replaceChildren(h('li', {}, errBox(e))); }
-  view.append(h('h2', {}, 'Who can Chat with you'), h('p', {}, 'Only people you follow who also follow you back. Chats are locked to your key: the server only keeps scrambled text it cannot read.'));
-  view.append(h('h2', {}, 'Reporting'), h('p', {}, 'Every Dream has a More button with Report Dream, and every profile has Report LooscidID. Reports go to the moderators of this server.'));
-}
-async function lookView() {
-  moreSub('look', 'App settings');
+  // theme + sign out
   const th = h('select', { id: 's-theme', onchange: () => { localStorage.setItem(LS.theme, th.value); applyTheme(); say('Theme changed'); } }, h('option', { value: '' }, 'Same as my device'), h('option', { value: 'dark' }, 'Dark'), h('option', { value: 'light' }, 'Light'));
   th.value = localStorage.getItem(LS.theme) || '';
-  view.append(h('h2', {}, 'Look'), h('section', { cls: 'card', 'aria-label': 'Look' }, h('label', { for: 's-theme' }, 'Theme'), th));
-}
-function helpView() {
-  moreSub('help', 'Help & about');
-  view.append(h('h2', {}, 'Local or server: which am I on?'), modeLine(),
-    h('p', {}, 'This website is always the Looscid server. The Looscid app can be either: Local only means your Dreams live just on that device; Looscid server means they also sync here. The app says which at the top of its More tab, the LooscidID page and Settings.'));
-  view.append(h('h2', {}, 'What the Looscid server is'), h('ul', {},
-    h('li', {}, 'Your LooscidID key stays on your device. The server never gets it.'),
-    h('li', {}, 'Every Dream is signed by your key, so nobody can fake one, not even the server.'),
-    h('li', {}, 'Chats are encrypted to your key; the server only holds scrambled text.'),
-    h('li', {}, 'It is invite-only, and you can export everything or sign out any time.')));
-  view.append(h('h2', {}, 'Tips'), h('ul', {}, h('li', {}, 'On a More page, Escape goes back to More.'), h('li', {}, 'Each Dream has a More button with Edit, Delete or Report.')));
-  view.append(h('h2', {}, 'About'), h('p', {}, h('a', { href: 'https://github.com/2three1y/looscidserver' }, 'Source code on GitHub'), ' \u00b7 ', h('a', { href: 'https://looscid.github.io/Looscid/' }, 'Open the Looscid app')));
+  view.append(h('h2', {}, 'Look and sign out'), h('section', { cls: 'card', 'aria-label': 'Look and sign out' }, h('label', { for: 's-theme' }, 'Theme'), th,
+    h('div', { cls: 'actions' }, h('button', { cls: 'danger', onclick: async () => { if (!confirm('Sign out and remove your LooscidID and copy from this device? Make sure you backed up your recovery phrase first.')) return; await client.req('POST', '/auth/logout').catch(() => {}); localStorage.clear(); await clearLocal().catch(() => {}); location.hash = ''; location.reload(); } }, 'Sign out of this device'))));
 }
 // ---------- backup file (.looscid) ----------
 // One file with your profile, Dreams, replies, Chats, likes, follows, settings AND your LooscidID key, locked with a
@@ -629,10 +542,9 @@ function restoreForm(prefix) {
 }
 function download(name, data) { const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' })), download: name }); document.body.append(a); a.click(); a.remove(); }
 
-async function adminView() {
-  moreSub('admin', 'Admin');
-  if (!staff) return view.append(h('p', {}, 'Only the owner and moderators can open this page.'));
-  view.append(h('p', { cls: 'hint' }, 'Only you and the moderators see Admin.'));
+async function modView() {
+  setView('mod', 'Moderation');
+  if (!staff) return view.append(h('p', {}, 'Only moderators can open this page.'));
   try {
     const st = await client.get('/mod/stats');
     view.append(h('p', { cls: 'meta' }, `${plural(st.dreamors, 'Dreamor')}, ${plural(st.dreams, 'Dream')}, ${plural(st.open_reports, 'open report')}. Server memory ${st.memory_mb} MB.`));
@@ -642,9 +554,9 @@ async function adminView() {
       const card = h('section', { cls: 'card', 'aria-label': `Report about a ${rep.kind}` });
       card.append(h('h3', {}, `${rep.reason.replace('_', ' ')} report about a ${rep.kind}`), h('p', { cls: 'meta' }, `From @${rep.by?.handle || 'someone'}, ${ago(rep.at)}.`), rep.note ? h('p', {}, `Note: ${rep.note}`) : null);
       const acts = h('div', { cls: 'actions' });
-      const act = (target, action, label) => h('button', { onclick: async () => { try { await client.req('POST', '/mod/action', { target, action, note: 'via mod page' }); say(`${label}: done`); adminView(); } catch (e) { say(e.message); } } }, label);
+      const act = (target, action, label) => h('button', { onclick: async () => { try { await client.req('POST', '/mod/action', { target, action, note: 'via mod page' }); say(`${label}: done`); modView(); } catch (e) { say(e.message); } } }, label);
       if (rep.dream) { card.append(h('p', {}, `Dream by @${rep.dream.by.handle}: ${rep.dream.text || '(no text)'}`), rep.dream.hidden ? h('p', { cls: 'meta' }, 'This Dream is hidden.') : null); acts.append(act(rep.dream.id, rep.dream.hidden ? 'unhide' : 'hide', rep.dream.hidden ? 'Unhide Dream' : 'Remove Dream'), act(rep.dream.by.pubkey, 'suspend', `Suspend @${rep.dream.by.handle}`)); }
-      if (rep.dreamor) { card.append(h('p', {}, `LooscidID @${rep.dreamor.handle}${rep.dreamor.suspended ? ' (suspended)' : ''}`)); acts.append(act(rep.dreamor.pubkey, rep.dreamor.suspended ? 'unsuspend' : 'suspend', rep.dreamor.suspended ? 'Unsuspend' : `Suspend @${rep.dreamor.handle}`)); }
+      if (rep.dreamor) { card.append(h('p', {}, `Account @${rep.dreamor.handle}${rep.dreamor.suspended ? ' (suspended)' : ''}`)); acts.append(act(rep.dreamor.pubkey, rep.dreamor.suspended ? 'unsuspend' : 'suspend', rep.dreamor.suspended ? 'Unsuspend' : `Suspend @${rep.dreamor.handle}`)); }
       if (rep.kind === 'chat') { card.append(h('p', {}, rep.evidence ? `Chat message from @${rep.chat_from?.handle}: ${rep.evidence.body?.text} (${rep.evidence_verified ? 'signature checked, it is real' : 'could not be verified'})` : 'Chat message (no copy attached).')); if (rep.chat_from) acts.append(act(rep.chat_from.pubkey, 'suspend', `Suspend @${rep.chat_from.handle}`)); }
       acts.append(act(rep.id, 'resolve', 'Mark report done'));
       card.append(acts); view.append(card);
@@ -658,7 +570,7 @@ async function adminView() {
       h('label', { for: 'role-handle' }, 'Their handle'), rh, h('label', { for: 'role-role' }, 'Role'), rr, rmsg, h('div', { cls: 'actions' }, h('button', { cls: 'primary' }, 'Send role invite'))));
     const lg = await client.get('/mod/log');
     view.append(h('h2', {}, 'Role invites and moderation log'));
-    view.append(lg.role_invites.length ? h('ul', { cls: 'plain' }, lg.role_invites.map((x) => h('li', {}, `@${x.to} invited as ${x.role} by @${x.by}, ${x.status}, ${ago(x.at)}`, x.status === 'accepted' ? [' ', h('button', { onclick: async () => { try { await client.req('POST', '/mod/action', { target: x.to, action: 'revoke_role' }); say(`Role taken away from @${x.to}`); adminView(); } catch (e) { say(e.message); } } }, `Take role away from @${x.to}`)] : null))) : h('p', {}, 'No role invites yet.'));
+    view.append(lg.role_invites.length ? h('ul', { cls: 'plain' }, lg.role_invites.map((x) => h('li', {}, `@${x.to} invited as ${x.role} by @${x.by}, ${x.status}, ${ago(x.at)}`, x.status === 'accepted' ? [' ', h('button', { onclick: async () => { try { await client.req('POST', '/mod/action', { target: x.to, action: 'revoke_role' }); say(`Role taken away from @${x.to}`); modView(); } catch (e) { say(e.message); } } }, `Take role away from @${x.to}`)] : null))) : h('p', {}, 'No role invites yet.'));
     if (lg.log.length) view.append(h('details', {}, h('summary', {}, `Moderation log (${lg.log.length})`), h('ul', { cls: 'plain' }, lg.log.map((x) => h('li', {}, `${ago(x.at)}: @${x.by} ${x.action.replace(/_/g, ' ')} ${x.target.length === 64 ? '' : x.target}${x.note ? ` (${x.note})` : ''}`)))));
     const t = await client.get('/mod/tree');
     view.append(h('h2', {}, 'Members and who invited them'));
@@ -677,7 +589,7 @@ function welcomeView(prefill = '') {
       h('li', {}, 'Why: Looscid now has its own home, the Looscid server, so friends can find you, Chats reach you even when you are offline, and your Dreams follow you to any device.'),
       h('li', {}, 'Your Dreams still live on your device first and work offline.'),
       h('li', {}, 'Nothing uploads unless you say yes, and your LooscidID signs everything, so nobody can fake your Dreams.'),
-      h('li', {}, 'You can export everything or stop syncing at any time in More.'))));
+      h('li', {}, 'You can export everything or stop syncing at any time in Settings.'))));
   // sign in
   const key = h('textarea', { id: 'in-key', rows: 3, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-describedby': 'in-key-hint' });
   const inErr = h('div', {});
@@ -716,7 +628,7 @@ async function signedIn(sk, token, isNewKey) {
   localStorage.setItem(LS.key, rem.toHex(sk)); localStorage.setItem(LS.token, token);
   client.setKey(sk); client.token = token;
   await boot();
-  if (isNewKey) { location.hash = '#more/looscidid'; say('Welcome! Back up your LooscidID now: choose Show recovery phrase.'); }
+  if (isNewKey) { location.hash = '#settings'; say('Welcome! Back up your LooscidID now: choose Show recovery phrase.'); }
   else { location.hash = '#dreamline'; }
 }
 
@@ -725,7 +637,7 @@ function applyTheme() { const t = localStorage.getItem(LS.theme); if (t) documen
 async function boot() {
   const r = await client.get('/me');
   me = r.me; me.role = r.me.role || 'member'; staff = r.staff;
-  $('#nav').hidden = false;
+  $('#nav').hidden = false; $('#mod-link').hidden = !staff;
   connectLive(); flushOutbox();
   syncDown().catch(() => {});
   client.get('/alerts', { limit: 1 }).then((a) => bumpAlerts(a.unseen, true)).catch(() => {});
@@ -745,10 +657,8 @@ async function route() {
   else if (hsh === 'me') await profileView(me.handle);
   else if ((x = /^@(.+)$/.exec(hsh))) await profileView(x[1]);
   else if ((x = /^dream\/([0-9a-f]{64})$/.exec(hsh))) await threadView(x[1]);
-  else if (hsh === 'more') { moreView(); const back = moreReturn && document.getElementById('cat-' + moreReturn); moreReturn = ''; if (back) return back.focus(); }
-  else if ((x = /^more\/([a-z]+)$/.exec(hsh)) && MORE_CATS().some((c) => c.id === x[1])) await MORE_CATS().find((c) => c.id === x[1]).view();
-  else if (hsh === 'settings') { location.replace('#more/looscidid'); return; }
-  else if (hsh === 'mod' || hsh === 'more/admin') { location.replace(staff ? '#more/admin' : '#more'); return; }
+  else if (hsh === 'settings') await settingsView();
+  else if (hsh === 'mod') await modView();
   else await feedView('dreamline');
   focusTitle();
 }
@@ -765,6 +675,6 @@ applyTheme();
       else client.token = null;
     }
   }
-  if (location.pathname.startsWith('/mod') && client.token) location.hash = '#more/admin';
+  if (location.pathname.startsWith('/mod') && client.token) location.hash = '#mod';
   await route();
 })();
