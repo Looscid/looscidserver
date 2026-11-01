@@ -194,7 +194,7 @@ const server = http.createServer(async (req, res) => {
     let p = decodeURIComponent(url.pathname); if (p === '/' || p === '/mod' || p === '/mod/') p = '/index.html';
     const file = path.join(pub, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
     if (!file.startsWith(pub)) return send(res, 404, { ok: false, code: 'not_found', message: 'Not found.' });
-    return serveFile(req, res, file, p.endsWith('.html') ? 'no-cache' : 'public, max-age=300');
+    return serveFile(req, res, file, 'no-cache');
   } catch (e) { return oops(res, e); }
 });
 

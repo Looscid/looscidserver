@@ -1,8 +1,8 @@
 // Looscid home: a small web client for this server. VoiceOver first.
 // Local-first: your LooscidID stays on this device, a copy of everything you made is kept here (IndexedDB),
 // you can read what you have and write while offline (it sends when you are back), and you can export it all.
-import { RemClient, rem } from './js/rem-client.js';
-import * as backup from './js/looscid-backup.js';
+import { RemClient, rem } from './js/rem-client.js?v=20261101a';
+import * as backup from './js/looscid-backup.js?v=20261101a';
 
 const $ = (s) => document.querySelector(s);
 const view = $('#view'), title = $('#title'), announceEl = $('#announce'), statusEl = $('#status');
