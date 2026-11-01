@@ -57,6 +57,9 @@ ol.chatlog { list-style: none; padding: 0; } ol.chatlog li { margin: .4rem 0; pa
 ol.chatlog li.mine { margin-left: auto; background: var(--btn); color: var(--btntext); }
 ul.plain { list-style: none; padding: 0; } ul.plain li { margin: .4rem 0; }
 .error { color: var(--danger); font-weight: 600; }
+.warn { border-left: 4px solid var(--danger); padding: .3rem .7rem; background: var(--panel2); border-radius: 8px; }
+.ok { color: var(--text); border-left: 4px solid var(--accent2); padding: .3rem .7rem; font-weight: 600; }
+.ok:focus { outline: none; }
 .foot { max-width: 44rem; margin: 2rem auto; padding: 0 1rem 2rem; color: var(--muted); font-size: .9rem; }
 .badge { background: var(--accent2); color: #062a20; border-radius: 999px; padding: 0 .45rem; font-size: .8rem; font-weight: 700; margin-left: .25rem; }
 @media (prefers-reduced-motion: no-preference) { button, nav a { transition: background-color .15s; } }

@@ -2,6 +2,7 @@
 // Local-first: your LooscidID stays on this device, a copy of everything you made is kept here (IndexedDB),
 // you can read what you have and write while offline (it sends when you are back), and you can export it all.
 import { RemClient, rem } from './js/rem-client.js';
+import * as backup from './js/looscid-backup.js';
 
 const $ = (s) => document.querySelector(s);
 const view = $('#view'), title = $('#title'), announceEl = $('#announce'), statusEl = $('#status');
@@ -385,6 +386,8 @@ async function settingsView() {
       h('button', { onclick: async () => { try { await navigator.clipboard.writeText(rem.nsecEncode(sk)); say('Secret key copied. Paste it somewhere safe.'); } catch { say('Copying did not work here. Use Show recovery phrase instead.'); } } }, 'Copy secret key (nsec)'),
       h('button', { onclick: async () => download('looscidid-backup.json', { kind: 'LooscidID backup', npub: rem.npubEncode(me.pubkey), nsec: rem.nsecEncode(sk), recovery_phrase: await rem.keyToPhrase(sk), home: location.host, made: new Date().toISOString(), note: 'Keep this file private. Anyone with it can sign in as you.' }) }, 'Download key backup file')),
     phraseBox));
+  // backup file (Oct 31 2026, Carter's idea: one file with everything AND the key, locked with a passcode)
+  view.append(h('h2', { id: 'backup-h' }, 'Backup file'), backupSection());
   // data
   view.append(h('h2', {}, 'Your data'), h('section', { cls: 'card', 'aria-label': 'Your data' },
     h('p', {}, 'Looscid is local-first and syncs through the Looscid server. This device keeps its own copy of everything you made, and you can take it all with you.'),
@@ -408,6 +411,134 @@ async function settingsView() {
   th.value = localStorage.getItem(LS.theme) || '';
   view.append(h('h2', {}, 'Look and sign out'), h('section', { cls: 'card', 'aria-label': 'Look and sign out' }, h('label', { for: 's-theme' }, 'Theme'), th,
     h('div', { cls: 'actions' }, h('button', { cls: 'danger', onclick: async () => { if (!confirm('Sign out and remove your LooscidID and copy from this device? Make sure you backed up your recovery phrase first.')) return; await client.req('POST', '/auth/logout').catch(() => {}); localStorage.clear(); await clearLocal().catch(() => {}); location.hash = ''; location.reload(); } }, 'Sign out of this device'))));
+}
+// ---------- backup file (.looscid) ----------
+// One file with your profile, Dreams, replies, Chats, likes, follows, settings AND your LooscidID key, locked with a
+// passcode you choose (PBKDF2 + AES-GCM, see js/looscid-backup.js). The same file opens in the Looscid app.
+function passFields(prefix, confirm) {
+  const p1 = h('input', { type: 'password', id: prefix + '-pass', autocomplete: confirm ? 'new-password' : 'current-password', 'aria-describedby': prefix + '-pass-hint' });
+  const p2 = confirm ? h('input', { type: 'password', id: prefix + '-pass2', autocomplete: 'new-password' }) : null;
+  const els = [h('label', { for: prefix + '-pass' }, 'Passcode for the file'),
+    h('p', { id: prefix + '-pass-hint', cls: 'hint' }, confirm ? 'At least 8 characters. Four short words work well. Nobody can recover it if you forget it.' : 'The passcode you chose when you saved the file.'), p1];
+  if (p2) els.push(h('label', { for: prefix + '-pass2' }, 'Type the passcode again'), p2);
+  return { p1, p2, els };
+}
+function myDreamsPlain(objs) {
+  const gone = new Set(objs.filter((o) => o.type === 'delete' && o.by === me.pubkey).map((o) => o.body.of));
+  const edits = {}; for (const o of objs) if (o.type === 'edit' && o.by === me.pubkey && (!edits[o.body.of] || edits[o.body.of].at < o.at)) edits[o.body.of] = o;
+  return objs.filter((o) => o.type === 'dream' && o.by === me.pubkey && !gone.has(o.id)).sort((a, b) => a.at - b.at).map((o) => {
+    const e = edits[o.id], b = o.body || {};
+    const d = { id: o.id, at: o.at, text: e ? e.body.text : b.text || '', audience: b.audience === 'followers' ? 'followers' : 'public' };
+    const cw = e ? e.body.cw : b.cw; if (cw) d.cw = cw; if (b.reply_to) d.reply_to = b.reply_to; return d;
+  });
+}
+function backupSection() {
+  const box = h('section', { cls: 'card', 'aria-labelledby': 'backup-h' });
+  const f = passFields('bk', true); const err = h('div', {});
+  box.append(
+    h('p', {}, 'One file with everything: your profile, Dreams, replies, Chats, likes, follows, settings, and your LooscidID key. It opens here or in the Looscid app, on any device.'),
+    h('p', { cls: 'warn', id: 'bk-warn' }, h('strong', {}, 'This file contains your key. '), 'Anyone who has the file and its passcode can be you, so keep it private. It is locked with a passcode you choose, and nobody can recover a forgotten passcode, not even this server.'),
+    h('h3', {}, 'Save backup file'),
+    h('form', { 'aria-describedby': 'bk-warn', onsubmit: async (e) => {
+      e.preventDefault(); err.replaceChildren();
+      const bad = backup.passcodeProblem(f.p1.value); if (bad) { err.append(h('p', { cls: 'error', role: 'alert' }, bad)); f.p1.focus(); return; }
+      if (f.p1.value !== f.p2.value) { err.append(h('p', { cls: 'error', role: 'alert' }, "The two passcodes don't match. Type them again.")); f.p2.focus(); return; }
+      const btn = e.submitter || e.target.querySelector('button'); btn.disabled = true; say('Making your backup file. This takes a few seconds.');
+      try {
+        let objs; try { const ex = await client.get('/export'); objs = ex.objects; await storeObjects(objs); } catch (x) { if (x.code !== 'offline') throw x; objs = await allObjects(); }
+        const { me: m } = await client.get('/me').catch(() => ({ me }));
+        const data = { from: 'home', key: { nsec: rem.nsecEncode(client.sk), pubkey: client.pubkey },
+          profile: { name: m.name, handle: m.handle, bio: m.bio || '', pronouns: m.pronouns || '' }, server: { home: location.host, handle: m.handle },
+          dreams: myDreamsPlain(objs), rem_objects: objs, app: null, home: { settings: { theme: localStorage.getItem(LS.theme) || '' } } };
+        const text = await backup.lockBackup(data, f.p1.value);
+        const name = backup.backupFileName(m.handle);
+        backup.downloadBackup(name, text);
+        f.p1.value = ''; f.p2.value = '';
+        const msg = `Backup file saved as ${name}: ${plural(data.dreams.length, 'Dream')} and ${plural(objs.length, 'item')} in all. Keep it private.`;
+        err.append(h('p', { cls: 'ok', tabindex: '-1' }, msg)); say(msg);
+      } catch (x) { err.append(h('p', { cls: 'error', role: 'alert' }, x.message || String(x))); }
+      finally { btn.disabled = false; }
+    } }, ...f.els, err, h('div', { cls: 'actions' }, h('button', { cls: 'primary' }, 'Save backup file'))),
+    h('h3', {}, 'Restore from backup file'),
+    restoreForm('s'));
+  return box;
+}
+// What a file brings back on this home: Dreams and replies (with their original times), follows, likes, profile, theme.
+async function restoreToHome(d, sk) {
+  const pk = rem.pubkeyOf(sk);
+  const objs = [];
+  for (const o of Array.isArray(d.rem_objects) ? d.rem_objects : []) { try { if (o && o.by === pk && (await rem.verifyObject(o))) objs.push(o); } catch {} }
+  const gone = new Set(objs.filter((o) => o.type === 'delete').map((o) => o.body.of));
+  const dreams = objs.filter((o) => o.type === 'dream' && !gone.has(o.id)).sort((a, b) => a.at - b.at);
+  const out = { imported: 0, skipped: 0, refused: 0, follows: 0, likes: 0 };
+  for (let i = 0; i < dreams.length; i += 200) {
+    const r = await client.req('POST', '/import', { objects: dreams.slice(i, i + 200) });
+    out.imported += r.imported.length; out.skipped += r.skipped.length; out.refused += r.refused.length + r.needs_alt.length;
+  }
+  // newest edit of each Dream, signed again now (edits can't keep an old time)
+  const edits = {}; for (const o of objs) if (o.type === 'edit' && (!edits[o.body.of] || edits[o.body.of].at < o.at)) edits[o.body.of] = o;
+  for (const [of, e] of Object.entries(edits)) { if (gone.has(of)) continue; try { const cur = (await client.get('/objects/' + of)).item; if (cur && cur.text !== e.body.text) await client.send('edit', { of, text: e.body.text, cw: e.body.cw || undefined }); } catch {} }
+  // follows and likes as they were last: signed again now with your key
+  const fol = {}; for (const o of objs.filter((x) => x.type === 'follow' || x.type === 'unfollow').sort((a, b) => a.at - b.at)) fol[o.body.who] = o.type === 'follow';
+  for (const [who, on] of Object.entries(fol)) if (on && who !== pk) { try { await client.send('follow', { who }); out.follows++; } catch {} }
+  const likes = {}; for (const o of objs.filter((x) => x.type === 'react').sort((a, b) => a.at - b.at)) if (!gone.has(o.id)) likes[o.body.of] = true;
+  for (const of of Object.keys(likes)) { try { const r = await client.send('react', { of, r: 'like' }); if (!r.duplicate) out.likes++; } catch {} }
+  // profile, only when this home has none yet
+  try {
+    const { me: m } = await client.get('/me'); const p = d.profile || {};
+    if ((!m.bio && p.bio) || ((!m.name || m.name === m.handle) && p.name && p.name !== m.name)) await client.send('profile', { name: p.name || m.name, bio: p.bio || m.bio || '', pronouns: p.pronouns || m.pronouns || '', chats_from: m.chats_from || 'mutuals' });
+  } catch {}
+  await storeObjects(objs).catch(() => {});
+  if (d.home && d.home.settings && typeof d.home.settings.theme === 'string') { localStorage.setItem(LS.theme, d.home.settings.theme); applyTheme(); }
+  const parts = [out.imported || !out.skipped ? `${plural(out.imported, 'Dream')} put back` : `your ${plural(out.skipped, 'Dream')} were already here`];
+  if (out.skipped && out.imported) parts.push(`${out.skipped} already here`);
+  if (out.follows) parts.push(plural(out.follows, 'follow'));
+  if (out.likes) parts.push(plural(out.likes, 'like'));
+  if (out.refused) parts.push(`${out.refused} couldn't go on this home (replies to Dreams that aren't here, or too long)`);
+  return 'Backup restored: ' + parts.join(', ') + '.';
+}
+function restoreForm(prefix) {
+  const file = h('input', { type: 'file', id: prefix + '-rfile', 'aria-describedby': prefix + '-rfile-hint' });
+  const f = passFields(prefix + 'r', false); const err = h('div', {}); const joinBox = h('div', {});
+  const form = h('form', { onsubmit: async (e) => {
+    e.preventDefault(); err.replaceChildren(); joinBox.replaceChildren();
+    if (!file.files || !file.files[0]) { err.append(h('p', { cls: 'error', role: 'alert' }, 'Choose your backup file first. It ends in .looscid.')); file.focus(); return; }
+    const btn = e.submitter || form.querySelector('button'); btn.disabled = true; say('Opening your backup file.');
+    try {
+      const d = await backup.unlockBackup(await file.files[0].text(), f.p1.value);
+      if (!d.key || !d.key.nsec) throw new Error('This backup file was saved without a key, so it can only be restored on the device that has your LooscidID.');
+      const sk = await rem.parseSecret(d.key.nsec);
+      if (client.token && me && me.pubkey) {
+        if (rem.pubkeyOf(sk) !== me.pubkey) throw new Error('This backup file belongs to a different LooscidID. Sign out first, then restore it from the welcome page.');
+        const msg = await restoreToHome(d, sk); f.p1.value = ''; err.append(h('p', { cls: 'ok', tabindex: '-1' }, msg)); say(msg); return;
+      }
+      client.setKey(sk);
+      try { const r = await client.login(); const msg = await restoreToHome(d, sk); await signedIn(sk, r.token); setTimeout(() => { status(msg); say(msg); }, 1200); return; }
+      catch (x) { if (x.code !== 'not_member') throw x; }
+      // Not a member of this home yet: join with an invite, using the key from the file.
+      const code = h('input', { type: 'text', id: prefix + '-rj-code', autocomplete: 'off', autocapitalize: 'characters' });
+      const handle = h('input', { type: 'text', id: prefix + '-rj-handle', autocapitalize: 'none', value: (d.server && d.server.handle) || (d.profile && String(d.profile.handle || '').replace(/^@/, '')) || '' });
+      const age = h('input', { type: 'checkbox', id: prefix + '-rj-age' }); const jErr = h('div', {});
+      joinBox.append(h('p', { id: prefix + '-rj-msg', tabindex: '-1' }, 'Your backup file is open. Its LooscidID is not a member of this home yet. Join with an invite code to bring your things here.'),
+        h('label', { for: prefix + '-rj-code' }, 'Invite code'), code, h('label', { for: prefix + '-rj-handle' }, 'Handle'), handle,
+        h('label', { cls: 'check', for: prefix + '-rj-age' }, age, 'I am 13 or older'), jErr,
+        h('div', { cls: 'actions' }, h('button', { type: 'button', cls: 'primary', onclick: async (ev) => {
+          jErr.replaceChildren(); ev.target.disabled = true;
+          try {
+            if (!age.checked) { age.focus(); throw new Error('Check the box to confirm you are 13 or older.'); }
+            const r = await client.join({ invite: code.value, handle: handle.value, name: (d.profile && d.profile.name) || handle.value });
+            const msg = await restoreToHome(d, sk); await signedIn(sk, r.token); setTimeout(() => { status(msg); say(msg); }, 1200);
+          } catch (x) { jErr.append(h('p', { cls: 'error', role: 'alert' }, x.message || String(x))); }
+          finally { ev.target.disabled = false; }
+        } }, 'Join and restore')));
+      $('#' + prefix + '-rj-msg').focus();
+    } catch (x) { err.append(h('p', { cls: 'error', role: 'alert' }, x.message || String(x))); f.p1.focus(); }
+    finally { btn.disabled = false; }
+  } },
+    h('p', { cls: 'hint' }, 'Bring everything back from a .looscid backup file, made here or in the Looscid app. It signs this device in with the key inside the file.'),
+    h('label', { for: prefix + '-rfile' }, 'Backup file'), h('p', { id: prefix + '-rfile-hint', cls: 'hint' }, 'The file ends in .looscid.'), file,
+    ...f.els, err, h('div', { cls: 'actions' }, h('button', { cls: 'primary' }, 'Restore from backup file')), joinBox);
+  return form;
 }
 function download(name, data) { const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' })), download: name }); document.body.append(a); a.click(); a.remove(); }
 
@@ -467,6 +598,8 @@ function welcomeView(prefill = '') {
     try { const sk = await rem.parseSecret(key.value); client.setKey(sk); const r = await client.login(); await signedIn(sk, r.token); }
     catch (er) { inErr.append(errBox(er)); }
   } }, h('label', { for: 'in-key' }, 'Recovery phrase or secret key'), h('p', { id: 'in-key-hint', cls: 'hint' }, 'Paste your 24-word recovery phrase or your nsec key. It stays on this device.'), key, inErr, h('div', { cls: 'actions' }, h('button', { cls: 'primary' }, 'Sign in'))));
+  // restore from a backup file (made in the Looscid app or on this site)
+  view.append(h('h2', { id: 'restore-h' }, 'Restore from a backup file'), h('section', { cls: 'card', 'aria-labelledby': 'restore-h' }, restoreForm('w')));
   // join
   const code = h('input', { type: 'text', id: 'j-code', value: prefill, autocomplete: 'off', autocapitalize: 'characters' });
   const handle = h('input', { type: 'text', id: 'j-handle', autocomplete: 'username', autocapitalize: 'none', 'aria-describedby': 'j-handle-hint' });
